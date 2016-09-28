@@ -38,6 +38,8 @@ local ForgeUI_CastBars = {
 					crCastBarEx = "FF1591DB",
 					crDuration = "FFFFCC00",
 					crText = "FFFFFFFF",
+					nCastBarExHeight = 2,
+					nDurationHeight = 2,
 					strFullSprite = "ForgeUI_Smooth",
 				},
 				Target = {
@@ -280,13 +282,25 @@ function ForgeUI_CastBars:UpdateCastBar(unit, wnd, strType)
 			bShowCastEx = tTapCastByName and bIsCasting
 			bShowDuration = (tTapCastByName and bIsCasting) or (tTapCastActive and not bIsCasting)
 
+			local bChargeRelease = false
+
 			if bShowDuration then
 				local tTapCast = tTapCastByName or tTapCastActive
 				wnd:FindChild("SpellName"):SetText(tTapCast.strSpellName)
 				wnd:FindChild("CastTime"):SetText(tTapCast.nThreshold)
 				wnd:FindChild("CastBar"):SetMax(tTapCast.nMaxThreshold)
 				wnd:FindChild("CastBar"):SetProgress(tTapCast.nThreshold)
-				wnd:FindChild("DurationBar"):SetProgress(1-GameLib.GetSpellThresholdTimePrcntDone(tTapCast.nIdSpell))
+
+				-- for ChargeRelease cast type ThresholdTimePrcntDone is actually CastDuration
+				if tTapCast.nCastMethod == Spell.CodeEnumCastMethod.ChargeRelease then
+					wnd:FindChild("CastBarEx"):SetMax(1)
+					wnd:FindChild("CastBarEx"):SetProgress(GameLib.GetSpellThresholdTimePrcntDone(tTapCast.nIdSpell))
+					bChargeRelease = true
+					bShowCastEx = true
+					bShowDuration = false
+				else
+					wnd:FindChild("DurationBar"):SetProgress(1-GameLib.GetSpellThresholdTimePrcntDone(tTapCast.nIdSpell))
+				end
 			else
 				wnd:FindChild("SpellName"):SetText(strSpellName)
 				wnd:FindChild("CastTime"):SetText(string.format("%00.01f", (fDuration - fElapsed)/1000) .. "s")
@@ -294,7 +308,7 @@ function ForgeUI_CastBars:UpdateCastBar(unit, wnd, strType)
 				wnd:FindChild("CastBar"):SetProgress(fElapsed)
 			end
 
-			if bShowCastEx then
+			if bShowCastEx and not bChargeRelease then
 				wnd:FindChild("CastBarEx"):SetMax(fDuration)
 				wnd:FindChild("CastBarEx"):SetProgress(fElapsed)
 			end
@@ -401,9 +415,9 @@ end
 function ForgeUI_CastBars:ForgeAPI_LoadSettings()
 	if self._DB.profile.bSmoothBars then
 		Apollo.RegisterEventHandler("NextFrame", 	"OnNextFrame", self)
-		Apollo.RemoveEventHandler("VarChange_FrameCount", self)
+		F:API_UnregisterEvent(self, "LazyUpdate")
 	else
-		Apollo.RegisterEventHandler("VarChange_FrameCount", "OnNextFrame", self)
+		F:API_RegisterEvent(self, "LazyUpdate", "OnNextFrame")
 		Apollo.RemoveEventHandler("NextFrame", self)
 	end
 
@@ -422,8 +436,24 @@ function ForgeUI_CastBars:ForgeAPI_LoadSettings()
 			self["wnd" .. k .. "CastBar"]:FindChild("CastTime"):SetAnchorPoints(0, 0, 1, 0)
 		end
 
+		if v.nCastBarExHeight ~= nil then
+			self["wnd" .. k .. "CastBar"]:FindChild("CastBarEx"):SetAnchorOffsets(0, - (v.nCastBarExHeight+1) or 0, 0, -1)
+		end
+
+		if v.nDurationHeight ~= nil then
+			self["wnd" .. k .. "CastBar"]:FindChild("DurationBar"):SetAnchorOffsets(0, 1, 0, (v.nDurationHeight+1) or 0)
+		end
+
 		if v.strFullSprite ~= nil then
 			self["wnd" .. k .. "CastBar"]:FindChild("CastBar"):SetFullSprite(v.strFullSprite)
+
+			if v.nCastBarExHeight ~= nil then
+				self["wnd" .. k .. "CastBar"]:FindChild("CastBarEx"):SetFullSprite(v.strFullSprite)
+			end
+
+			if v.nDurationHeight ~= nil then
+				self["wnd" .. k .. "CastBar"]:FindChild("DurationBar"):SetFullSprite(v.strFullSprite)
+			end
 		end
 	end
 end
@@ -475,7 +505,7 @@ function ForgeUI_CastBars:ForgeAPI_PopulateOptions()
 		end
 
 		if v.crCastBarEx then
-			G:API_AddColorBox(self, self.tOptionHolders[k], "Extra cast bar color ", v, "crCastBarEx", { tMove = {400, 30},
+			G:API_AddColorBox(self, self.tOptionHolders[k], "Extra cast bar color ", v, "crCastBarEx", { tMove = {200, 30},
 				fnCallback = function(...)
 					self["wnd" .. k .. "CastBar"]:FindChild("CastBarEx"):SetBarColor(arg[2])
 				end
@@ -483,7 +513,7 @@ function ForgeUI_CastBars:ForgeAPI_PopulateOptions()
 		end
 
 		if v.crDuration then
-			G:API_AddColorBox(self, self.tOptionHolders[k], "Duration bar color", v, "crDuration", { tMove = {400, 60},
+			G:API_AddColorBox(self, self.tOptionHolders[k], "Duration bar color", v, "crDuration", { tMove = {200, 60},
 				fnCallback = function(...) self["wnd" .. k .. "CastBar"]:FindChild("DurationBar"):SetBarColor(arg[2]) end
 			})
 		end
@@ -495,6 +525,14 @@ function ForgeUI_CastBars:ForgeAPI_PopulateOptions()
 					self["wnd" .. k .. "CastBar"]:FindChild("SpellName"):SetTextColor(arg[2])
 				end
 			})
+		end
+
+		if v.nCastBarExHeight ~= nil then
+			G:API_AddNumberBox(self, self.tOptionHolders[k], "Extra cast bar height", v, "nCastBarExHeight", { tMove = {400, 30}, fnCallback = self.ForgeAPI_LoadSettings })
+		end
+
+		if v.nDurationHeight ~= nil then
+			G:API_AddNumberBox(self, self.tOptionHolders[k], "Duration bar height", v, "nDurationHeight", { tMove = {400, 60}, fnCallback = self.ForgeAPI_LoadSettings })
 		end
 
 		if v.bCenterText ~= nil then
